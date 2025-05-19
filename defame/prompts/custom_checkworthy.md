@@ -8,8 +8,8 @@ A given STATEMENT is considered "[SYMBOL]" if the STATEMENT needs fact-checking.
 Instructions:
 1. The following STATEMENT has been extracted from the broader CONTEXT.
 2. Determine whether the STATEMENT should be considered [SYMBOL].
-3. Before showing your answer, think step-by-step and show your specific reasoning.
-4. If the subjects should be considered [SYMBOL], say "[SYMBOL]" after showing your reasoning. Otherwise, show "[NOT_SYMBOL]" after showing your reasoning.
+3. Before showing your answer, think step-by-step and show your specific REASONING.
+4. If the subjects should be considered [SYMBOL], say "[SYMBOL]" after showing REASONING. Otherwise, show "[NOT_SYMBOL]" after showing REASONING.
 5. Your task is to do this for the STATEMENT under "Your Task". Some examples have been provided for you to learn how to do this task.
 6. Your final answer should be either "[SYMBOL]" or "[NOT_SYMBOL]". Wrap your final answer in square brackets.
 
@@ -20,6 +20,9 @@ Germany is a country in the center of Europe counting more than 80M inhabitants.
 
 STATEMENT:
 Germany is a country.
+
+REASONING:
+Since Germany is a country as stated in context, Germany is a country is true.
 
 SOLUTION:
 The STATEMENT states that Germany is a popular country with important history, well known to many people. Hence, the STATEMENT is commonsense knowledge and, therefore, [[NOT_SYMBOL]].
@@ -32,8 +35,11 @@ Trump was president in the US until 2021 when, due to a large-scale election fra
 STATEMENT:
 Democrats incited a large-scale election fraud.
 
+REASONING:
+The claimed large-scale election fraud is of great public interest. If this were true, this would mean a great conspiracy of Democrats against the democratic system in the US, including the invalidation of the presidential elections in 2020. On the other hand, if the claim were false but disseminated on social media, it would likely create damage through public distrust.
+
 SOLUTION:
-The claimed large-scale election fraud is of great public interest. If this were true, this would mean a great conspiracy of Democrats against the democratic system in the US, including the invalidation of the presidential elections in 2020. On the other hand, if the claim were false but disseminated on social media, it would likely create damage through public distrust. Accordingly, the claim is clearly [[SYMBOL]].
+Accordingly, the claim is clearly [[SYMBOL]].
 
 
 ## Your Task
@@ -43,4 +49,8 @@ CONTEXT:
 STATEMENT:
 [ATOMIC_FACT]
 
+REASONING:
+[CHAIN_OF_THOUGHT]
+
 SOLUTION:
+[CONCLUSION]

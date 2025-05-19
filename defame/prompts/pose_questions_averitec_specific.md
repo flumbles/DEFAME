@@ -1,6 +1,6 @@
 # Instructions
 You are a fact-checker. Your overall motivation is to verify a given Claim. You are in the middle of the fact-check, documented under "Record". **Your task right now is to pose questions.** That is,
-1. Analyze what information is missing. Write one or two paragraphs for this.
+1. Analyze what information is missing.Write your reasoning process.
 2. Finally, state a complete and enumerated list of [N_QUESTIONS] Questions: The Questions are supposed to guide the fact-check. Answering them should help to verify the Claim.
 
 IMPORTANT: Follow these rules:
@@ -11,8 +11,6 @@ Tips:
 * Ask one question to unveil more about the Claim's origin. For example, where did the Claim first occur? If the Claim contains a quote, ask where the quote was first published. If the Claim's speaker is unknown, ask who the speaker is.
 * You may base your new questions on previously found evidence (if available) to dive deeper into the matter, if helpful.
 * Try to ask diverse questions. Avoid repeating the wording from previous questions.
-* Remain brief.
-
 # Examples
 Claim: "New Zealand’s new Food Bill bans gardening."
 Questions:

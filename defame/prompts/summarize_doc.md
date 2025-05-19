@@ -3,7 +3,7 @@ You are provided with the record of a fact-check. It contains the Claim to be ve
 * Be truthful, brief, do not add any additional information besides the information given in the Record. 
 * Link key sources in your summary. Use Markdown notation for that. You may link them in-line.
 * Don't state the Claim again. Rather focus on the key insights of the fact-check.
-* Simply print just the summary.
+* Share your thought process.
 
 # Record
 [DOC]

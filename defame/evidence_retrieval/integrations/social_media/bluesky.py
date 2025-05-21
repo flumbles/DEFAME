@@ -24,7 +24,9 @@ class Bluesky(RetrievalIntegration):
         super().__init__()
         if not username or not password:
             logger.error("Bluesky username and password must be provided in api_keys.yaml")
-            raise ValueError("Bluesky username and password must be provided in api_keys.yaml")
+            print("Warning: Bluesky credentials not found. Bluesky integration will be disabled.") 
+            self.enabled = False
+            return
 
         self.username = username
         self.password = password

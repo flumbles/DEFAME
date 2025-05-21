@@ -64,10 +64,6 @@ class Search(Action):
             self.platform = PLATFORMS["google"]
 
         # image = Image(reference=image) if image else None
-        if image and not query:
-          query = "Information about this image"  # Default text query
-          logger.warning(f"Reverse Image Search disabled. Using text query: '{query}'")
-
         image = None
 
         try:

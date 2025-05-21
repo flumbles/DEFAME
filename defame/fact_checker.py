@@ -211,16 +211,15 @@ class RateLimitedFactChecker(FactChecker):
         super().__init__(*args, **kwargs)
         self.tokens_used_in_last_minute = 0
         self.last_reset_time = time.time()
-        self.tpm_limit = 18000  # Set below the actual limit to be safe
+        self.tpm_limit = 18000 
        
     def verify_claim_with_rate_limit(self, claim):
-        # Reset counter if a minute has passed
         current_time = time.time()
         if current_time - self.last_reset_time >= 60:
             self.tokens_used_in_last_minute = 0
             self.last_reset_time = current_time
        
-        # Wait if we're close to the limit
+       # too close to limit, wait.
         if self.tokens_used_in_last_minute > self.tpm_limit * 0.8:
             wait_time = 60 - (current_time - self.last_reset_time)
             if wait_time > 0:
@@ -228,13 +227,7 @@ class RateLimitedFactChecker(FactChecker):
                 time.sleep(wait_time)
                 self.tokens_used_in_last_minute = 0
                 self.last_reset_time = time.time()
-       
-        # Run the verification
+     
         report, meta = super().verify_claim(claim)
-       
-        # Update token usage (assuming the stats contain this info)
-        if "Statistics" in meta and "Model" in meta["Statistics"]:
-            if "tokens" in meta["Statistics"]["Model"]:
-                self.tokens_used_in_last_minute += meta["Statistics"]["Model"]["tokens"]
        
         return report, meta

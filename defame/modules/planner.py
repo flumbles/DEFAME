@@ -33,30 +33,85 @@ class Planner:
         return available_actions
 
     def plan_next_actions(self, doc: Report, all_actions=False) -> (list[Action], str):
+        # First, try to get actions from the original planning logic
         prompt = PlanPrompt(doc, self.valid_actions, self.extra_rules, all_actions)
         n_attempts = 0
+        original_actions = []
+        original_reasoning = ""
 
-        while n_attempts < self.max_attempts:
+        while n_attempts < self.max_attempts and not original_actions:
             n_attempts += 1
 
             response = self.llm.generate(prompt)
             if response is None:
                 logger.warning("No new actions were found.")
-                return [], ""
+                break
 
-            actions = response["actions"]
-            reasoning = response["reasoning"]
+            actions_from_prompt = response["actions"]
+            reasoning_from_prompt = response["reasoning"]
 
             # Remove actions that have been performed before
             performed_actions = doc.get_all_actions()
-            actions = [action for action in actions if action not in performed_actions]
-
-            if len(actions) > 0:
-                return actions, reasoning
+            original_actions = [action for action in actions_from_prompt if action not in performed_actions]
+            
+            if original_actions:
+                original_reasoning = reasoning_from_prompt
             else:
                 performed_actions_str = ", ".join(str(obj) for obj in performed_actions)
                 logger.warning(f'No new actions were found in this response:\n{response["response"]} and performed actions: {performed_actions_str}')
-                return [], ""
+
+        # Now, check if we should add a Geolocate action for images
+        geolocate_action = None
+        geolocate_reasoning = ""
+        
+        try:
+            # Use has_image() method if it exists
+            has_image = doc.claim.has_image() if hasattr(doc.claim, 'has_image') else False
+        except Exception:
+            # Fallback: try checking if there are any Image objects in the claim items
+            has_image = False
+            try:
+                for item in doc.claim:
+                    if "Image" in str(type(item)):
+                        has_image = True
+                        break
+            except Exception:
+                # If all else fails, assume no image
+                has_image = False
+        
+        if has_image:
+            completed_action_types = set(type(a) for a in doc.get_all_actions())
+            # Check if Geolocate hasn't been performed yet
+            if Geolocate not in completed_action_types:
+                try:
+                    # Try to get image URLs
+                    if hasattr(doc.claim, 'get_image_urls'):
+                        image_urls = doc.claim.get_image_urls()
+                    else:
+                        # Fallback: try to find image references directly
+                        image_urls = []
+                        for item in doc.claim:
+                            if "Image" in str(type(item)) and hasattr(item, 'reference'):
+                                image_urls.append(item.reference)
+                    
+                    if image_urls:
+                        geolocate_action = Geolocate(image_urls[0])
+                        geolocate_reasoning = "Adding geolocation analysis for the image in this claim."
+                except Exception as e:
+                    logger.warning(f"Failed to create Geolocate action: {e}")
+        
+        # Combine original actions with Geolocate if available
+        final_actions = original_actions.copy()
+        final_reasoning = original_reasoning
+        
+        if geolocate_action and geolocate_action not in final_actions:
+            final_actions.append(geolocate_action)
+            if final_reasoning:
+                final_reasoning += " " + geolocate_reasoning
+            else:
+                final_reasoning = geolocate_reasoning
+        
+        return final_actions, final_reasoning
 
 
 def _process_answer(answer: str) -> str:

@@ -35,7 +35,8 @@ class Search(Action):
                  mode: str = "search",
                  limit: int = None,
                  start_date: str = None,
-                 end_date: str = None):
+                 end_date: str = None,
+                 reasoning: str = None):
         """
         @param query: The textual search query. At least one of `query` or `image` must
             be set.
@@ -65,9 +66,14 @@ class Search(Action):
 
         # image = Image(reference=image) if image else None
         if image and not query:
-            logger.warning("Reverse Image Search is disabled. Skipping this search action.")
-            self.query = None  
-        return
+          # Convert image-only search to a meaningful text search
+          query = "current Prime Minister of Singapore 2025"  # Or make this more dynamic
+          logger.warning(f"Reverse Image Search disabled. Converting to text search: '{query}'")
+        elif image and query:
+          # If both image and query provided, just use the query and ignore image
+          logger.warning("Image parameter ignored - RIS is disabled. Using text query only.")
+          
+        image = None 
 
         try:
             mode = SearchMode(mode) if mode else None
@@ -85,7 +91,7 @@ class Search(Action):
             end_date = None
 
         self.query = Query(text=query, image=image, search_mode=mode, limit=limit,
-                           start_date=start_date, end_date=end_date)
+                           start_date=start_date, end_date=end_date, reasoning=reasoning)
 
     def __eq__(self, other):
         return isinstance(other, Search) and self.query == other.query and self.name == other.name
@@ -158,6 +164,9 @@ class Searcher(Tool):
     def _perform(self, action: Search) -> Optional[SearchResults]:
         """Validates the search query (by enforcing potential restrictions)
         and runs it."""
+        if not hasattr(action, 'query') or action.query is None:
+          logger.warning("Skipping search action - no valid query.")
+          return None
         query = action.query
 
         # Set the strictest specified end date

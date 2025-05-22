@@ -65,15 +65,17 @@ class Search(Action):
             self.platform = PLATFORMS["google"]
 
         # image = Image(reference=image) if image else None
-        if image and not query:
-          # Convert image-only search to a meaningful text search
-          query = "current Prime Minister of Singapore 2025"  # Or make this more dynamic
-          logger.warning(f"Reverse Image Search disabled. Converting to text search: '{query}'")
-        elif image and query:
-          # If both image and query provided, just use the query and ignore image
-          logger.warning("Image parameter ignored - RIS is disabled. Using text query only.")
-          
-        image = None 
+        if image:
+            logger.warning("Reverse Image Search (RIS) is disabled. Skipping image-based search.")
+            if not query:
+                # No text query provided, skip this search entirely
+                self.query = None
+                return
+            else:
+                # Use only the text query, ignore image
+                logger.warning("Using text query only, ignoring image parameter.")
+                
+        image = None
 
         try:
             mode = SearchMode(mode) if mode else None

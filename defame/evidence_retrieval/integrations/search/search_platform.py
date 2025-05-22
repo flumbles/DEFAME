@@ -17,8 +17,11 @@ class SearchPlatform(ABC):
         assert self.name is not None
 
     def _before_search(self, query: Query):
-        self.n_searches += 1
-        logger.log(yellow(f"Searching {self.name} with query: {query}"))
+      self.n_searches += 1
+      log_message = f"Searching {self.name} with query: {query}"
+      if hasattr(query, 'reasoning') and query.reasoning:
+          log_message += f"\nReasoning: {query.reasoning}"
+      logger.log(yellow(log_message))
 
     def search(self, query: Query | str) -> Optional[SearchResults]:
         """Runs the API by submitting the query and obtaining a list of search results."""

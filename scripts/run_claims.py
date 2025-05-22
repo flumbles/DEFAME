@@ -9,7 +9,7 @@ fact_checker = RateLimitedFactChecker(llm="gpt_4o", tools_config={
         "geolocator": None  # default
     })
 claim = ["The image",
-         Image("in/example/earthquake.png"),
-         "shows the disastrous effects of the 2011 Japan tohuku earthquake"]
+         Image("in/example/Sahara.webp"),
+         "shows the Sahara snowing!"]
 report, _ = fact_checker.verify_claim_with_rate_limit(claim)
 report.save_to("out/fact-check")

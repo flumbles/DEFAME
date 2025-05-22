@@ -211,7 +211,7 @@ class RateLimitedFactChecker(FactChecker):
         super().__init__(*args, **kwargs)
         self.tokens_used_in_last_minute = 0
         self.last_reset_time = time.time()
-        self.tpm_limit = 18000 
+        self.tpm_limit = 18000
        
     def verify_claim_with_rate_limit(self, claim):
         current_time = time.time()

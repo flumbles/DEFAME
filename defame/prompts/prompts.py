@@ -411,6 +411,20 @@ def parse_single_action(raw_action: str) -> Optional[Action]:
 
         action_name, args, kwargs = out
 
+        # Filter out invalid image references for geolocate actions
+        if action_name == "geolocate":
+            # Check if the image parameter has an invalid reference
+            image_ref = None
+            if args and len(args) > 0:
+                image_ref = args[0]
+            elif 'image' in kwargs:
+                image_ref = kwargs['image']
+            
+            # Skip geolocate actions with invalid image references
+            if image_ref and (image_ref.startswith("image:") or image_ref.startswith("<image:")):
+                logger.warning(f"Skipping geolocate action with invalid image reference: {image_ref}")
+                return None
+
         for action in ACTION_REGISTRY:
             if action_name == action.name:
                 return action(*args, **kwargs)

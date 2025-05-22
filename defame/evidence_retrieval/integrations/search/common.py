@@ -24,6 +24,7 @@ class Query:
     limit: Optional[int] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    reasoning: Optional[str] = None
 
     def __post_init__(self):
         assert self.text or self.image, "Query must have at least one of 'text' or 'image'."

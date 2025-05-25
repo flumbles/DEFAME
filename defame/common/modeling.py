@@ -605,27 +605,44 @@ the instructions and keep the output to the minimum."""
             response = ""
             return response
 
-        response = self.processor.decode(out[0], skip_special_tokens=True)
-        if "llava_next" in self.name:
-            return find(response, "assistant\n\n\n")[0]
-        elif "llava_onevision" in self.name:
-            return response
+        try:
+            response = self.processor.decode(out[0], skip_special_tokens=True)
+            if "llava_next" in self.name:
+                return find(response, "assistant\n\n\n")[0] if response else ""
+            elif "llava_onevision" in self.name:
+                return response
+            else:
+                return response
+        except Exception as e:
+            logger.error(f"Failed to decode LLaVA response: {str(e)}")
+            return ""
 
     def handle_prompt(self, original_prompt: Prompt, system_prompt: str = None) -> str:
         if system_prompt is None:
             system_prompt = self.system_prompt
 
         # images = [image.image for image in original_prompt.images] if original_prompt.is_multimodal() else None
-        images = [block.image for block in original_prompt.to_list() if
-                  isinstance(block, Image)] if original_prompt.is_multimodal() else None
-
+        images = None
+        if hasattr(original_prompt, 'is_multimodal') and original_prompt.is_multimodal():
+            images = [block.image for block in original_prompt.to_list() if isinstance(block, Image)]
+        elif hasattr(original_prompt, 'to_list'):
+            # Check if there are any images in the prompt
+            blocks = original_prompt.to_list()
+            images = [block.image for block in blocks if isinstance(block, Image)]
+            if not images:
+                images = None
         try:
             if "llava_next" in self.name:
                 if len(original_prompt.images) > 1:
                     logger.warning(
                         "Prompt contains more than one image; only the first image will be processed. Be aware of semantic confusions!")
                 formatted_prompt = self.format_for_llava_next(original_prompt, system_prompt)
-                inputs = self.processor(images=images, text=formatted_prompt, return_tensors="pt").to(self.device)
+                device = getattr(self, 'device', 'cuda' if torch.cuda.is_available() else 'cpu')
+                inputs = self.processor(images=images, text=formatted_prompt, return_tensors="pt")
+                # Move tensors to device individually
+                for key in inputs:
+                    if hasattr(inputs[key], 'to'):
+                        inputs[key] = inputs[key].to(device)
             elif "llava_onevision" in self.name:
                 if images:
                     image_tensors = process_images(images, self.image_processor, self.model.config)

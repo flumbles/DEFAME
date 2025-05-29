@@ -3,7 +3,7 @@ from typing import Collection
 import pyparsing as pp
 
 from defame.common.action import (Action)
-from defame.evidence_retrieval.tools import IMAGE_ACTIONS
+from defame.evidence_retrieval.tools import IMAGE_ACTIONS, Search
 from defame.common import logger, Report, Model
 from defame.prompts.prompts import PlanPrompt
 
@@ -39,6 +39,14 @@ class Planner:
         original_actions = []
         original_reasoning = ""
 
+        # Clean up the claim text first
+        claim_text = str(doc.claim)
+        if "Claim:" in claim_text:
+            claim_text = claim_text.split("Claim:", 1)[1].strip()
+            claim_text = claim_text.split('"')[1] if '"' in claim_text else claim_text
+            claim_text = claim_text.split("\n")[0].strip()
+        print(f"DEBUG - Using claim text: {claim_text}")
+
         while n_attempts < self.max_attempts and not original_actions:
             n_attempts += 1
 
@@ -53,12 +61,17 @@ class Planner:
             # Remove actions that have been performed before
             performed_actions = doc.get_all_actions()
             original_actions = [action for action in actions_from_prompt if action not in performed_actions]
+            print(f"DEBUG - Original actions: {original_actions}")
             
             if original_actions:
-                original_reasoning = reasoning_from_prompt
+                original_reasoning = reasoning_from_prompt 
+                print(f"DEBUG - Original reasoning: {original_reasoning}")
             else:
-                performed_actions_str = ", ".join(str(obj) for obj in performed_actions)
-                logger.warning(f'No new actions were found in this response:\n{response["response"]} and performed actions: {performed_actions_str}')
+                # If no actions were found, force a search action with the claim text
+                search_action = Search(claim_text)
+                original_actions = [search_action]
+                original_reasoning = "Performing a search to find information about the claim."
+                logger.info("No actions found from LLM, adding default search action.")
 
         # Now, check if we should add a Geolocate action for images
         geolocate_action = None

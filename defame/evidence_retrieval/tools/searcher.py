@@ -64,6 +64,19 @@ class Search(Action):
             logger.warning(f"Platform {platform} is not available. Defaulting to Google.")
             self.platform = PLATFORMS["google"]
 
+        # Clean up the query text
+        if query:
+            # Remove any metadata formatting
+            if "Claim:" in query:
+                query = query.split("Claim:", 1)[1].strip()
+                query = query.split('"')[1] if '"' in query else query
+                query = query.split("\n")[0].strip()
+            
+            # Remove any remaining quotes or special characters
+            query = query.strip('"\'')
+            # Log the cleaned query
+            logger.info(f"Using search query: {query}")
+
         # image = Image(reference=image) if image else None
         if image:
             logger.warning("Reverse Image Search (RIS) is disabled. Skipping image-based search.")

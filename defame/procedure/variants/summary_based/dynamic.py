@@ -12,11 +12,20 @@ class DynamicSummary(Procedure):
     def apply_to(self, doc: Report) -> (Label, dict[str, Any]):
         n_iterations = 0
         label = Label.NEI
+        empty_action_count = 0 # winnie
         while label == Label.NEI and n_iterations < self.max_iterations:
             if n_iterations > 0:
                 logger.log("Not enough information yet. Continuing fact-check...")
             n_iterations += 1
             actions, reasoning = self.planner.plan_next_actions(doc)
+            #winnie
+            if not actions:
+                empty_action_count += 1
+                if empty_action_count >= 2:  # Exit after 2 failed attempts
+                    logger.log("No new actions available. Ending fact-check.")
+                    break
+            else:
+                empty_action_count = 0 #winnie
             if len(reasoning) > 32:  # Only keep substantial reasoning
                 doc.add_reasoning(reasoning)
             if actions:

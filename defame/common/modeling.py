@@ -257,6 +257,12 @@ class Model(ABC):
             self.n_input_tokens += self.count_tokens(prompt)
             response = self._generate(prompt, temperature=temperature, top_p=top_p, top_k=top_k,
                                       system_prompt=system_prompt)
+            print("="*50)
+            print("RAW LLAVA RESPONSE:")
+            print("="*50)
+            print(response)
+            print("="*50)
+            # print(prompt, response) # winnie
             logger.log_model_comm(
                 f"{type(prompt).__name__} - QUERY:\n\n{prompt}\n\n\n\n===== > RESPONSE:  < =====\n{response}")
             self.n_output_tokens += self.count_tokens(response)

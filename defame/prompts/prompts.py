@@ -2,6 +2,7 @@ import re
 import traceback
 from pathlib import Path
 from typing import Collection, Optional
+from datetime import datetime
 
 from defame.common import Report, Label, Claim, Action, Prompt, Content, logger
 from defame.common.action import get_action_documentation
@@ -15,6 +16,15 @@ from defame.utils.parsing import (remove_non_symbols, extract_last_code_span, re
 SYMBOL = 'Check-worthy'
 NOT_SYMBOL = 'Unimportant'
 
+def get_action_registry():
+    """Lazy import to avoid circular dependencies"""
+    from defame.evidence_retrieval.tools import ACTION_REGISTRY
+    return ACTION_REGISTRY
+
+def get_search_action():
+    """Lazy import to avoid circular dependencies"""
+    from defame.evidence_retrieval.tools import Search
+    return Search
 
 class JudgePrompt(Prompt):
     template_file_path = "defame/prompts/judge.md"
@@ -113,32 +123,56 @@ class PlanPrompt(Prompt):
         if all_actions:
             extra_rules = "Very Important: No need to be frugal. Choose all available actions at least once."
 
+        # Add current date information
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
         placeholder_targets = {
             "[DOC]": doc,
             "[VALID_ACTIONS]": valid_action_str,
-            # "[EXEMPLARS]": load_exemplars(valid_actions),
             "[EXTRA_RULES]": extra_rules,
+            "[CURRENT_DATE]": current_date,
         }
         super().__init__(placeholder_targets=placeholder_targets)
 
     def extract(self, response: str) -> dict:
-        # TODO: Prevent the following from happening at all.
-        # It may accidentally happen that the LLM generated "<image:k>" in its response (because it was
-        # included as an example in the prompt).
-        pattern = re.compile(r'<image:[a-z]>')
-        matches = pattern.findall(response)
+        print("="*70)
+        print("DEBUGGING PlanPrompt.extract()")
+        print("="*70)
+        print(f"Raw response to extract from:\n{response}")
+        print("="*70)
 
-        if matches:
-            # Replace "<image:k>" with the reference to the claim's image by assuming that the first image
-            # is tha claim image.
-            if self.images:
-                claim_image_ref = self.images[
-                    0].reference  # Be careful that the Plan Prompt always has the Claim image first before any other image!
-                response = pattern.sub(claim_image_ref, response)
-                logger.warning(f"LLM generated reference '<image:k>'. Replacing it by {claim_image_ref}.")
-
-        actions = extract_actions(response)
-        reasoning = extract_reasoning(response)
+        # Extract the reasoning first
+        reasoning = ""
+        if "REASONING:" in response:
+            reasoning = response.split("REASONING:", 1)[1].split("```", 1)[0].strip()
+        
+        # Extract the code block
+        code_block = extract_last_python_code_block(response)
+        print(f"DEBUG - Extracted code block:\n{code_block}")
+        
+        # Extract actions from the code block
+        actions = []
+        if code_block:
+            # Use regex to find all search function calls, even within other code
+            search_pattern = r'search\s*\(\s*(?:query\s*=\s*)?["\']([^"\']+)["\']\s*(?:\s*,\s*(?:platform|mode)\s*=\s*["\'][^"\']+["\'])*\s*\)'
+            search_calls = re.finditer(search_pattern, code_block)
+            
+            for match in search_calls:
+                search_call = match.group(0)
+                search_call = re.sub(r'query\s*=\s*', '', search_call)
+                print(f"DEBUG - Found search call: {search_call}")
+                
+                try:
+                    action = parse_single_action(search_call)
+                    if action:
+                        actions.append(action)
+                        print(f"DEBUG - Successfully parsed action: {action}")
+                except Exception as e:
+                    print(f"DEBUG - Failed to parse search call '{search_call}': {e}")
+                    continue
+        
+        print(f"DEBUG - Extracted actions: {actions}")
+        
         return dict(
             actions=actions,
             reasoning=reasoning,
@@ -396,8 +430,6 @@ def load_exemplars(valid_actions: Collection[type[Action]]) -> str:
 
 
 def parse_single_action(raw_action: str) -> Optional[Action]:
-    from defame.evidence_retrieval.tools import ACTION_REGISTRY
-
     raw_action = raw_action.strip(" \"")
 
     if not raw_action:
@@ -411,14 +443,8 @@ def parse_single_action(raw_action: str) -> Optional[Action]:
 
         action_name, args, kwargs = out
 
-        # Filter out invalid image references for geolocate actions
-        if action_name == "geolocate":
-            # Check if the image parameter has an invalid reference
-            image_ref = None
-            if args and len(args) > 0:
-                image_ref = args[0]
-            elif 'image' in kwargs:
-                image_ref = kwargs['image']
+        # Get available actions
+        ACTION_REGISTRY = get_action_registry()
 
         for action in ACTION_REGISTRY:
             if action_name == action.name:
@@ -433,33 +459,56 @@ def parse_single_action(raw_action: str) -> Optional[Action]:
     return None
 
 
-def extract_actions(answer: str, limit=5) -> list[Action]:
-    from defame.evidence_retrieval.tools import ACTION_REGISTRY
-
-    actions_str = extract_last_python_code_block(answer)
-
-    # Handle cases where the LLM forgot to enclose actions in code block
-    if not actions_str:
-        candidates = []
-        for action in ACTION_REGISTRY:
-            pattern = re.compile(rf'({re.escape(action.name)}\(.+?\))', re.DOTALL)
-            candidates += pattern.findall(answer)
-        actions_str = "\n".join(candidates)
-    if not actions_str:
-        # Potentially prompt LLM to correct format: Expected format: action_name("arguments")
-        return []
-
-    # Parse actions
-    raw_actions = actions_str.split('\n')
+def extract_actions(answer: str, limit=5, claim_text: str = None) -> list[Action]:
     actions = []
-    for raw_action in raw_actions:
-        action = parse_single_action(raw_action)
-        if action:
-            actions.append(action)
-        if len(actions) == limit:
-            break
-
-    return actions
+    
+    # First try to extract from code block
+    code_block = extract_last_python_code_block(answer)
+    print(f"DEBUG - Code block content: {code_block}")
+    
+    if code_block:
+        # Use regex to find all search function calls, even within other code
+        # Match both with and without parameter names
+        search_pattern = r'search\s*\(\s*(?:query\s*=\s*)?["\']([^"\']+)["\']\s*(?:\s*,\s*(?:platform|mode)\s*=\s*["\'][^"\']+["\'])*\s*\)'
+        search_calls = re.finditer(search_pattern, code_block)
+        
+        for match in search_calls:
+            search_call = match.group(0)
+            # Remove any query= prefixes
+            search_call = re.sub(r'query\s*=\s*', '', search_call)
+            print(f"DEBUG - Found search call: {search_call}")
+            
+            try:
+                action = parse_single_action(search_call)
+                if action:
+                    actions.append(action)
+                    print(f"DEBUG - Successfully parsed action: {action}")
+            except Exception as e:
+                print(f"DEBUG - Failed to parse search call '{search_call}': {e}")
+                continue
+    
+    # If no actions found in code block, try to find them directly in the text
+    if not actions:
+        print("DEBUG - No actions found in code block, trying direct format")
+        # Look for direct action calls in the text
+        ACTION_REGISTRY = get_action_registry()
+        for action_type in ACTION_REGISTRY:
+            pattern = re.compile(rf'({re.escape(action_type.name)}\(.+?\))', re.DOTALL)
+            matches = pattern.findall(answer)
+            for match in matches:
+                # Remove any query= prefixes
+                match = re.sub(r'query\s*=\s*', '', match)
+                action = parse_single_action(match)
+                if action:
+                    actions.append(action)
+    
+    # Only fall back to default search if we have no actions and no reasoning
+    if not actions and claim_text and "REASONING:" not in answer:
+        print(f"DEBUG - No actions or reasoning found, creating default search with claim: {claim_text}")
+        Search = get_search_action()
+        actions.append(Search(claim_text))
+    
+    return actions[:limit]
 
 
 def extract_verdict(response: str, classes: Collection[Label]) -> Optional[Label]:
@@ -487,7 +536,6 @@ def extract_verdict(response: str, classes: Collection[Label]) -> Optional[Label
 
 
 def extract_queries(response: str) -> list:
-    from defame.evidence_retrieval.tools import Search
     matches = find_code_span(response)
     queries = []
     for match in matches:

@@ -18,7 +18,7 @@ class Procedure(ABC):
         self.planner = planner
         self.max_attempts = max_attempts
 
-    def apply_to(self, doc: Report) -> (Label, dict[str, Any]):Add commentMore actions
+    def apply_to(self, doc: Report) -> (Label, dict[str, Any]):
         """Receives a fact-checking document (including a claim) and performs a fact-check on the claim.
         Returns the estimated veracity of the claim along with a dictionary, hosting any additional, procedure-
         specific meta information."""

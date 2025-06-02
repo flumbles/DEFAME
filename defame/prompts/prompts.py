@@ -138,7 +138,7 @@ class PlanPrompt(Prompt):
         print("="*70)
         print("DEBUGGING PlanPrompt.extract()")
         print("="*70)
-        print(f"Raw response to extract from:\n{response}")
+        print(f"Raw response to extract actions from:\n{response}")
         print("="*70)
 
         # Extract the reasoning first
@@ -153,13 +153,12 @@ class PlanPrompt(Prompt):
         # Extract actions from the code block
         actions = []
         if code_block:
-            # Use regex to find all search function calls, even within other code
-            search_pattern = r'search\s*\(\s*(?:query\s*=\s*)?["\']([^"\']+)["\']\s*(?:\s*,\s*(?:platform|mode)\s*=\s*["\'][^"\']+["\'])*\s*\)'
+            # Simpler pattern to match all search formats
+            search_pattern = r'search\s*\(\s*(?:"[^"]+"|\'[^\']+\'|\<image:\d+\>)(?:\s*,\s*(?:"[^"]+"|\'[^\']+\'|\<image:\d+\>|\w+\s*=\s*"[^"]+"|\w+\s*=\s*\'[^\']+\'))*\s*\)'
             search_calls = re.finditer(search_pattern, code_block)
             
             for match in search_calls:
                 search_call = match.group(0)
-                search_call = re.sub(r'query\s*=\s*', '', search_call)
                 print(f"DEBUG - Found search call: {search_call}")
                 
                 try:
@@ -430,29 +429,80 @@ def load_exemplars(valid_actions: Collection[type[Action]]) -> str:
 
 
 def parse_single_action(raw_action: str) -> Optional[Action]:
+    print(f"\n=== DEBUG: Starting parse_single_action ===")
+    print(f"Raw action: {raw_action}")
+    
     raw_action = raw_action.strip(" \"")
+    print(f"Stripped action: {raw_action}")
 
     if not raw_action:
+        print("DEBUG - Empty action, returning None")
         return None
 
     try:
         out = parse_function_call(raw_action)
+        print(f"DEBUG - parse_function_call result: {out}")
 
         if out is None:
+            print("DEBUG - Failed to parse function call")
             raise ValueError(f'Invalid action: {raw_action}\nExpected format: action_name(<arg1>, <arg2>, ...)')
 
         action_name, args, kwargs = out
+        print(f"DEBUG - Parsed components:")
+        print(f"  - action_name: {action_name}")
+        print(f"  - args: {args}")
+        print(f"  - kwargs: {kwargs}")
 
         # Get available actions
         ACTION_REGISTRY = get_action_registry()
 
         for action in ACTION_REGISTRY:
             if action_name == action.name:
+                # Handle image search formats
+                if action_name == "search":
+                    # Extract image reference if present in args or kwargs
+                    image_ref = None
+                    query = None
+                    
+                    # Check args first
+                    print("\nDEBUG - Checking args for image/query")
+                    for arg in args:
+                        if isinstance(arg, str):
+                            if "<image:" in arg:
+                                image_ref = arg
+                                print(f"DEBUG - Found image ref in args: {image_ref}")
+                            else:
+                                query = arg
+                                print(f"DEBUG - Found query in args: {query}")
+                    
+                    # Check kwargs
+                    print("\nDEBUG - Checking kwargs for image/query")
+                    if "image" in kwargs:
+                        image_ref = kwargs["image"]
+                        print(f"DEBUG - Found image ref in kwargs: {image_ref}")
+                    if "query" in kwargs:
+                        query = kwargs["query"]
+                        print(f"DEBUG - Found query in kwargs: {query}")
+                    
+                    # Create appropriate search action
+                    print("\nDEBUG - Creating search action")
+                    print(f"Final values: query={query}, image={image_ref}")
+                    if image_ref and query:
+                        print("DEBUG - Creating combined search")
+                        return action(query=query, image=image_ref, mode="reverse")
+                    elif image_ref:
+                        print("DEBUG - Creating image-only search")
+                        return action(image=image_ref, mode="reverse")
+                    else:
+                        print("DEBUG - Creating text-only search")
+                        return action(*args, **kwargs)
                 return action(*args, **kwargs)
 
         raise ValueError(f'Invalid action: {raw_action}\nExpected format: action_name(<arg1>, <arg2>, ...)')
 
     except Exception as e:
+        print(f"DEBUG - Exception in parse_single_action: {str(e)}")
+        print(f"DEBUG - Traceback: {traceback.format_exc()}")
         logger.warning(f"Failed to parse '{raw_action}':\n{e}")
         logger.warning(traceback.format_exc())
 
@@ -462,52 +512,69 @@ def parse_single_action(raw_action: str) -> Optional[Action]:
 def extract_actions(answer: str, limit=5, claim_text: str = None) -> list[Action]:
     actions = []
     
+    print("\n=== DEBUG: Starting extract_actions ===")
+    print(f"Input answer:\n{answer}")
+    
     # First try to extract from code block
     code_block = extract_last_python_code_block(answer)
-    print(f"DEBUG - Code block content: {code_block}")
+    print(f"\nDEBUG - Raw code block content:\n{code_block}")
     
     if code_block:
-        # Use regex to find all search function calls, even within other code
-        # Match both with and without parameter names
-        search_pattern = r'search\s*\(\s*(?:query\s*=\s*)?["\']([^"\']+)["\']\s*(?:\s*,\s*(?:platform|mode)\s*=\s*["\'][^"\']+["\'])*\s*\)'
-        search_calls = re.finditer(search_pattern, code_block)
+        # Pattern to match all search formats including named parameters
+        search_pattern = r'search\s*\(\s*(?:(?:query\s*=\s*)?["\']([^"\']+)["\']|(?:image\s*=\s*)?["\']([^"\']+)["\']|\w+\s*=\s*["\'][^"\']+["\'])(?:\s*,\s*(?:(?:query\s*=\s*)?["\']([^"\']+)["\']|(?:image\s*=\s*)?["\']([^"\']+)["\']|\w+\s*=\s*["\'][^"\']+["\']))*\s*\)'
+        print(f"\nDEBUG - Using search pattern:\n{search_pattern}")
         
-        for match in search_calls:
+        search_calls = re.finditer(search_pattern, code_block)
+        search_matches = list(search_calls)  # Convert iterator to list for debugging
+        print(f"\nDEBUG - Found {len(search_matches)} search matches")
+        
+        for match in search_matches:
             search_call = match.group(0)
-            # Remove any query= prefixes
-            search_call = re.sub(r'query\s*=\s*', '', search_call)
-            print(f"DEBUG - Found search call: {search_call}")
+            print(f"\nDEBUG - Processing search call: {search_call}")
+            print(f"DEBUG - Match groups: {match.groups()}")
             
             try:
                 action = parse_single_action(search_call)
+                print(f"DEBUG - Parsed action result: {action}")
                 if action:
                     actions.append(action)
-                    print(f"DEBUG - Successfully parsed action: {action}")
+                    print(f"DEBUG - Successfully added action: {action}")
             except Exception as e:
-                print(f"DEBUG - Failed to parse search call '{search_call}': {e}")
+                print(f"DEBUG - Failed to parse search call '{search_call}':")
+                print(f"DEBUG - Error: {str(e)}")
+                print(f"DEBUG - Traceback: {traceback.format_exc()}")
                 continue
     
     # If no actions found in code block, try to find them directly in the text
     if not actions:
-        print("DEBUG - No actions found in code block, trying direct format")
+        print("\nDEBUG - No actions found in code block, trying direct format")
         # Look for direct action calls in the text
         ACTION_REGISTRY = get_action_registry()
         for action_type in ACTION_REGISTRY:
             pattern = re.compile(rf'({re.escape(action_type.name)}\(.+?\))', re.DOTALL)
             matches = pattern.findall(answer)
+            print(f"\nDEBUG - Found {len(matches)} direct matches for {action_type.name}")
             for match in matches:
-                # Remove any query= prefixes
-                match = re.sub(r'query\s*=\s*', '', match)
+                print(f"DEBUG - Processing direct match: {match}")
                 action = parse_single_action(match)
                 if action:
                     actions.append(action)
+                    print(f"DEBUG - Successfully added direct action: {action}")
     
     # Only fall back to default search if we have no actions and no reasoning
     if not actions and claim_text and "REASONING:" not in answer:
-        print(f"DEBUG - No actions or reasoning found, creating default search with claim: {claim_text}")
+        print("\nDEBUG - No actions or reasoning found, creating default search")
+        print(f"DEBUG - Claim text: {claim_text}")
         Search = get_search_action()
+        # For image claims, use the image in the search
+        if "<image:" in claim_text:
+            image_ref = re.search(r'<image:\d+>', claim_text)
+            if image_ref:
+                print(f"DEBUG - Found image reference: {image_ref.group(0)}")
+                return [Search(image=image_ref.group(0), mode="reverse")]
         actions.append(Search(claim_text))
     
+    print(f"\nDEBUG - Final actions list: {actions}")
     return actions[:limit]
 
 

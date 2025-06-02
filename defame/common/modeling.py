@@ -257,12 +257,7 @@ class Model(ABC):
             self.n_input_tokens += self.count_tokens(prompt)
             response = self._generate(prompt, temperature=temperature, top_p=top_p, top_k=top_k,
                                       system_prompt=system_prompt)
-            print("="*50)
-            print("RAW LLAVA RESPONSE:")
-            print("="*50)
-            print(response)
-            print("="*50)
-            # print(prompt, response) # winnie
+            print(prompt, response)
             logger.log_model_comm(
                 f"{type(prompt).__name__} - QUERY:\n\n{prompt}\n\n\n\n===== > RESPONSE:  < =====\n{response}")
             self.n_output_tokens += self.count_tokens(response)
@@ -627,21 +622,21 @@ the instructions and keep the output to the minimum."""
         if system_prompt is None:
             system_prompt = self.system_prompt
 
-        # images = [image.image for image in original_prompt.images] if original_prompt.is_multimodal() else None
+        # Extract images from the prompt
         images = None
         if hasattr(original_prompt, 'is_multimodal') and original_prompt.is_multimodal():
-            images = [block.image for block in original_prompt.to_list() if isinstance(block, Image)]
-        elif hasattr(original_prompt, 'to_list'):
-            # Check if there are any images in the prompt
             blocks = original_prompt.to_list()
             images = [block.image for block in blocks if isinstance(block, Image)]
             if not images:
                 images = None
+
         try:
             if "llava_next" in self.name:
-                if len(original_prompt.images) > 1:
+                # Only warn if we actually have multiple images
+                if images and len(images) > 1:
                     logger.warning(
                         "Prompt contains more than one image; only the first image will be processed. Be aware of semantic confusions!")
+                
                 formatted_prompt = self.format_for_llava_next(original_prompt, system_prompt)
                 device = getattr(self, 'device', 'cuda' if torch.cuda.is_available() else 'cpu')
                 inputs = self.processor(images=images, text=formatted_prompt, return_tensors="pt")

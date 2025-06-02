@@ -1,46 +1,28 @@
-from abc import ABC
 from typing import Any
 
-from defame.common import Report, Label, Model
-from defame.evidence_retrieval import Source, Search
-from defame.evidence_retrieval.integrations import SearchResults
-from defame.modules import Judge, Actor, Planner
-from defame.prompts.prompts import DevelopPrompt
+from defame.common import Report, Label, logger
+from defame.procedure.procedure import Procedure
 
 
-class Procedure(ABC):
-    """Base class of all procedures. A procedure is the algorithm which implements the fact-checking strategy."""
-
-    def __init__(self, llm: Model, actor: Actor, judge: Judge, planner: Planner,
-                 max_attempts: int = 3, **kwargs):
-        self.llm = llm
-        self.actor = actor
-        self.judge = judge
-        self.planner = planner
-        self.max_attempts = max_attempts
+class DynamicSummary(Procedure):
+    def __init__(self, max_iterations: int = 3, **kwargs):
+        super().__init__(**kwargs)
+        self.max_iterations = max_iterations
 
     def apply_to(self, doc: Report) -> (Label, dict[str, Any]):
-        """Receives a fact-checking document (including a claim) and performs a fact-check on the claim.
-        Returns the estimated veracity of the claim along with a dictionary, hosting any additional, procedure-
-        specific meta information."""
-        raise NotImplementedError
-
-    def retrieve_sources(
-            self,
-            search_actions: list[Search],
-            doc: Report = None,
-            summarize: bool = False
-    ) -> list[Source]:
-        evidence = self.actor.perform(search_actions, doc=doc, summarize=summarize)
-        sources = []
-        for e in evidence:
-            results = e.raw
-            if isinstance(results, SearchResults):
-                sources.extend(results.sources)
-        return sources
-
-    def _develop(self, doc: Report):
-        """Analyzes the currently available information and infers new insights."""
-        prompt = DevelopPrompt(doc)
-        response = self.llm.generate(prompt)
-        doc.add_reasoning("## Elaboration\n" + response)
+        n_iterations = 0
+        label = Label.NEI
+        while label == Label.NEI and n_iterations < self.max_iterations:
+            if n_iterations > 0:
+                logger.log("Not enough information yet. Continuing fact-check...")
+            n_iterations += 1
+            actions, reasoning = self.planner.plan_next_actions(doc)
+            if len(reasoning) > 32:  # Only keep substantial reasoning
+                doc.add_reasoning(reasoning)
+            if actions:
+                doc.add_actions(actions)
+                evidences = self.actor.perform(actions, doc)
+                doc.add_evidence(evidences)  # even if no evidence, add empty evidence block for the record
+                self._develop(doc)
+            label = self.judge.judge(doc, is_final=n_iterations == self.max_iterations or not actions)
+        return label, {}

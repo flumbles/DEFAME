@@ -77,18 +77,10 @@ class Search(Action):
             # Log the cleaned query
             logger.info(f"Using search query: {query}")
 
-        # image = Image(reference=image) if image else None
+        # Process image if provided
         if image:
-            logger.warning("Reverse Image Search (RIS) is disabled. Skipping image-based search.")
-            if not query:
-                # No text query provided, skip this search entirely
-                self.query = None
-                return
-            else:
-                # Use only the text query, ignore image
-                logger.warning("Using text query only, ignoring image parameter.")
-                
-        image = None
+            image = Image(reference=image)
+            logger.info(f"Using image for search: {image.reference}")
 
         try:
             mode = SearchMode(mode) if mode else None

@@ -273,11 +273,22 @@ def get_base_domain(url) -> str:
 def parse_function_call(code: str) -> Tuple[str, list[Any], dict[str, Any]] | None:
     """Turns a string containing a Python function call into the function's name, a
     list of the positional arguments, and a dict containing the keyword arguments."""
-    tree = ast.parse(code)
+    try:
+        tree = ast.parse(code.strip())
+    except SyntaxError:
+        return None
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):  # Look for function calls
-            func_name = node.func.id if isinstance(node.func, ast.Name) else None
+            func_name = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+            
+            if func_name is None:
+                continue
+                
             args = []
             kwargs = {}
 
@@ -294,6 +305,8 @@ def parse_function_call(code: str) -> Tuple[str, list[Any], dict[str, Any]] | No
                     kwargs[key] = value.value
 
             return func_name, args, kwargs
+    
+    return None
 
 
 def is_image(binary_data: bytes) -> bool:

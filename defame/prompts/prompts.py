@@ -135,43 +135,32 @@ class PlanPrompt(Prompt):
         super().__init__(placeholder_targets=placeholder_targets)
 
     def extract(self, response: str) -> dict:
-        print("="*70)
-        print("DEBUGGING PlanPrompt.extract()")
-        print("="*70)
-        print(f"Raw response to extract actions from:\n{response}")
-        print("="*70)
-
-        # Extract the reasoning first
+    # Extract the reasoning first
         reasoning = ""
         if "REASONING:" in response:
             reasoning = response.split("REASONING:", 1)[1].split("```", 1)[0].strip()
-        
+
         # Extract the code block
         code_block = extract_last_python_code_block(response)
-        print(f"DEBUG - Extracted code block:\n{code_block}")
-        
+
         # Extract actions from the code block
         actions = []
         if code_block:
-            # Simpler pattern to match all search formats
-            search_pattern = r'search\s*\(\s*(?:"[^"]+"|\'[^\']+\'|\<image:\d+\>)(?:\s*,\s*(?:"[^"]+"|\'[^\']+\'|\<image:\d+\>|\w+\s*=\s*"[^"]+"|\w+\s*=\s*\'[^\']+\'))*\s*\)'
-            search_calls = re.finditer(search_pattern, code_block)
-            
-            for match in search_calls:
-                search_call = match.group(0)
-                print(f"DEBUG - Found search call: {search_call}")
-                
+            search_pattern = r'search\([^)]+\)'
+            search_calls = re.findall(search_pattern, code_block)
+
+            for search_call in search_calls:
                 try:
                     action = parse_single_action(search_call)
                     if action:
                         actions.append(action)
-                        print(f"DEBUG - Successfully parsed action: {action}")
                 except Exception as e:
-                    print(f"DEBUG - Failed to parse search call '{search_call}': {e}")
+                    # Log the error but continue processing other actions
+                    logger.warning(f"Failed to parse search call '{search_call}': {e}")
                     continue
-        
-        print(f"DEBUG - Extracted actions: {actions}")
-        
+
+        print(f"DEBUG - Extracted actions: {actions}")  # Keep only this debug line
+
         return dict(
             actions=actions,
             reasoning=reasoning,
@@ -429,82 +418,49 @@ def load_exemplars(valid_actions: Collection[type[Action]]) -> str:
 
 
 def parse_single_action(raw_action: str) -> Optional[Action]:
-    print(f"\n=== DEBUG: Starting parse_single_action ===")
-    print(f"Raw action: {raw_action}")
-    
     raw_action = raw_action.strip(" \"")
-    print(f"Stripped action: {raw_action}")
 
     if not raw_action:
-        print("DEBUG - Empty action, returning None")
         return None
 
     try:
         out = parse_function_call(raw_action)
-        print(f"DEBUG - parse_function_call result: {out}")
-
         if out is None:
-            print("DEBUG - Failed to parse function call")
-            raise ValueError(f'Invalid action: {raw_action}\nExpected format: action_name(<arg1>, <arg2>, ...)')
+            raise ValueError(f'Invalid action: {raw_action}')
 
         action_name, args, kwargs = out
-        print(f"DEBUG - Parsed components:")
-        print(f"  - action_name: {action_name}")
-        print(f"  - args: {args}")
-        print(f"  - kwargs: {kwargs}")
-
-        # Get available actions
         ACTION_REGISTRY = get_action_registry()
 
         for action in ACTION_REGISTRY:
             if action_name == action.name:
-                # Handle image search formats
                 if action_name == "search":
-                    # Extract image reference if present in args or kwargs
                     image_ref = None
                     query = None
                     
-                    # Check args first
-                    print("\nDEBUG - Checking args for image/query")
                     for arg in args:
                         if isinstance(arg, str):
-                            if "<image:" in arg:
+                            if "<image:" in arg and re.match(r'<image:\d+>', arg):
                                 image_ref = arg
-                                print(f"DEBUG - Found image ref in args: {image_ref}")
                             else:
                                 query = arg
-                                print(f"DEBUG - Found query in args: {query}")
                     
-                    # Check kwargs
-                    print("\nDEBUG - Checking kwargs for image/query")
                     if "image" in kwargs:
                         image_ref = kwargs["image"]
-                        print(f"DEBUG - Found image ref in kwargs: {image_ref}")
+                        if not re.match(r'<image:\d+>', image_ref):
+                            image_ref = None
                     if "query" in kwargs:
                         query = kwargs["query"]
-                        print(f"DEBUG - Found query in kwargs: {query}")
                     
-                    # Create appropriate search action
-                    print("\nDEBUG - Creating search action")
-                    print(f"Final values: query={query}, image={image_ref}")
                     if image_ref and query:
-                        print("DEBUG - Creating combined search")
                         return action(query=query, image=image_ref, mode="reverse")
                     elif image_ref:
-                        print("DEBUG - Creating image-only search")
                         return action(image=image_ref, mode="reverse")
                     else:
-                        print("DEBUG - Creating text-only search")
                         return action(*args, **kwargs)
                 return action(*args, **kwargs)
 
-        raise ValueError(f'Invalid action: {raw_action}\nExpected format: action_name(<arg1>, <arg2>, ...)')
-
     except Exception as e:
-        print(f"DEBUG - Exception in parse_single_action: {str(e)}")
-        print(f"DEBUG - Traceback: {traceback.format_exc()}")
-        logger.warning(f"Failed to parse '{raw_action}':\n{e}")
-        logger.warning(traceback.format_exc())
+        logger.warning(f"Failed to parse '{raw_action}': {e}")
 
     return None
 

@@ -12,8 +12,13 @@ import tiktoken
 import torch
 from ezmm import Image
 from openai import OpenAI
-from transformers import pipeline, MllamaForConditionalGeneration, AutoProcessor, StoppingCriteria, \
+from transformers import pipeline, AutoProcessor, StoppingCriteria, \
     StoppingCriteriaList, Pipeline
+
+try:
+    from transformers import MllamaForConditionalGeneration
+except ImportError:
+    MllamaForConditionalGeneration = None
 
 from config.globals import api_keys
 from defame.common import logger
@@ -524,6 +529,8 @@ fact-check any presented content."""
         Supports both standard LLaMA and LLaMA 3.2 with multimodal capabilities.
         """
         if "llama_32" in model_name:
+            if MllamaForConditionalGeneration is None:
+                raise ImportError("Llama 3.2 models require transformers>=4.45.0. Please upgrade transformers or use a different model.")
             logger.info(f"Loading LLaMA 3.2 model: {model_name} ...")
 
             self.model = MllamaForConditionalGeneration.from_pretrained(
@@ -556,7 +563,140 @@ fact-check any presented content."""
         # Default text-only generation
         return super()._generate(prompt, temperature, top_p, top_k, system_prompt)
 
+class QwenModel(HuggingFaceModel):
+    accepts_images = True   # Vision-Language model
+    accepts_videos = False
+    accepts_audio = False
+    
+    def __init__(self, specifier: str, **kwargs):
+        super().__init__(specifier, **kwargs)
+    
+    def load(self, model_name: str):
+        """Load Qwen2.5-VL without flash attention"""
+        try:
+            from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        except ImportError:
+            raise ImportError("Qwen2VL models require transformers>=4.45.0. Please upgrade transformers.")
 
+        import torch
+
+        # Clear GPU memory first
+        torch.cuda.empty_cache()
+
+        logger.info(f"Loading Qwen2.5-VL: {model_name}")
+
+        try:
+            # Load processor first
+            logger.info("Loading processor...")
+            self.processor = AutoProcessor.from_pretrained(
+                model_name,
+                token=api_keys.get("huggingface_user_access_token"),
+                trust_remote_code=True
+            )
+            self.tokenizer = self.processor
+
+            # Load model WITHOUT flash attention
+            logger.info("Loading model without flash attention...")
+
+            model_kwargs = {
+                "token": api_keys.get("huggingface_user_access_token"),
+                "trust_remote_code": True,
+                "low_cpu_mem_usage": True,
+                "attn_implementation": "eager",  # Use eager attention instead of flash
+            }
+
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                **model_kwargs
+            )
+
+            logger.info(f"Model loaded successfully without flash attention!")
+
+            # Log device and memory info
+            device = next(self.model.parameters()).device
+            logger.info(f"Model device: {device}")
+
+            if torch.cuda.is_available():
+                memory_used = torch.cuda.memory_allocated() / 1024**3
+                logger.info(f"GPU memory used: {memory_used:.2f} GB")
+
+            return self.model
+
+        except Exception as e:
+            logger.error(f"Failed to load Qwen2.5-VL: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+
+            # Cleanup on failure
+            torch.cuda.empty_cache()
+            raise
+    
+    def _generate(self, prompt: Prompt, temperature: float, top_p: float, top_k: int,
+                  system_prompt: str = None) -> str:
+        """Custom generation for VL model"""
+        try:
+            formatted_text, images = self.handle_prompt(prompt, system_prompt)
+            
+            # Process inputs
+            inputs = self.processor(
+                text=formatted_text,
+                images=images,
+                return_tensors="pt"
+            ).to(self.model.device)
+            
+            # Generate
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=self.max_response_len,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    do_sample=True if temperature > 0 else False,
+                )
+            
+            # Decode response
+            response = self.processor.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            )
+            
+            return response.strip()
+            
+        except Exception as e:
+            logger.warning(f"Error in Qwen VL generation: {str(e)}")
+            return ""
+    
+    def handle_prompt(self, original_prompt: Prompt, system_prompt: str = None) -> tuple:
+        """Handle text and images"""
+        if system_prompt is None:
+            system_prompt = self.system_prompt
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # Simple approach - just add text content
+        text_content = str(original_prompt)
+        messages.append({"role": "user", "content": text_content})
+        
+        # Format prompt
+        try:
+            formatted_text = self.processor.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True
+            )
+        except Exception as e:
+            logger.warning(f"Chat template failed: {e}")
+            formatted_text = f"System: {system_prompt}\n\nUser: {text_content}\n\nAssistant:"
+        
+        # Extract images
+        images = [img.image for img in original_prompt.images] if original_prompt.has_images() else None
+        
+        return formatted_text, images
+    
 class LlavaModel(HuggingFaceModel):
     accepts_images = True
     accepts_videos = False
@@ -721,6 +861,8 @@ def make_model(name: str, **kwargs) -> Model:
                     return LlavaModel(specifier, **kwargs)
                 elif "llama" in model_name:
                     return LlamaModel(specifier, **kwargs)
+                elif "qwen" in model_name:
+                    return QwenModel(specifier, **kwargs)
             except torch.cuda.OutOfMemoryError as e:
                 print(f"CUDA out of memory error occurred: {e}")
                 print("Consider reducing n_workers or batch size, or freeing up GPU memory.")
